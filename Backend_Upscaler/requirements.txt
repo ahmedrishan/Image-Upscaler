@@ -1,0 +1,22 @@
+# Base Build Tools (Critical for basicsr)
+setuptools<70.0.0
+wheel
+Cython
+
+# Core ML (Torch 2.3.1 + Torchvision 0.18.1 is a stable pair for Py3.11)
+torch==2.3.1
+torchvision==0.18.1
+torchaudio==2.3.1
+
+# RealESRGAN & Dependencies
+# numpy<2 is REQUIRED for basicsr/realesrgan compatibility
+numpy<2.0.0
+Pillow>=10.0.0
+realesrgan==0.3.0
+basicsr==1.4.2
+requests
+
+# Backend API
+fastapi>=0.110.0
+uvicorn>=0.29.0
+python-multipart>=0.0.9

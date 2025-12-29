@@ -1,0 +1,62 @@
+# Dependencies & Environments
+Backend_Upscaler/venv/
+Frontend_Upscaler/node_modules/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Python Build & Packaging
+*.egg-info/
+build/
+dist/
+manifest
+*.spec
+
+# Node.js
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# User Data (Privacy Protection)
+Backend_Upscaler/uploads/*
+!Backend_Upscaler/uploads/.gitkeep
+Backend_Upscaler/outputs/*
+!Backend_Upscaler/outputs/.gitkeep
+
+# Heavy AI Assets
+Backend_Upscaler/weights/*.pth
+!Backend_Upscaler/weights/.gitkeep
+
+# Build Outputs & System Files
+Frontend_Upscaler/dist/
+.env
+Frontend_Upscaler/env
+*.log
+coverage/
+*.sqlite
+*.db
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# OS Generated
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# Agent Framework
+.agent/
