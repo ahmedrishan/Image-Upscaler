@@ -1,33 +1,32 @@
-# Offline AI Upscaler
+# Offline AI Image Upscaler
 
-A full-stack, offline-capable AI image upscaler using RealESRGAN, FastAPI, and React.
+A professional Windows desktop application that uses **RealESRGAN** for local image enhancement. It features a robust **FastAPI** backend and a modern **React/Vite** frontend, ensuring all processing stays offline for maximum privacy.
 
-## 🚀 Quick Start
+## ✨ Core Features
 
-**Method 1: One-Click Script (Windows)**
-Double-click `start_app.bat` in this folder.
-- It opens two terminal windows (one for backend, one for frontend).
-- Open your browser to `http://localhost:5173`.
+*   **High-Quality Upscaling**: Powered by the state-of-the-art RealESRGAN model to enhance image resolution and detail.
+*   **Modern UI**: Built with React and Tailwind CSS for a sleek, responsive, and user-friendly experience.
+*   **Privacy First**: 100% offline processing. No images are ever uploaded to the cloud; your data stays on your machine.
+*   **Simple Launch**: A single `.bat` file to start both backend and frontend services instantly.
 
-**Method 2: Manual Start**
+## 📂 Project Structure
 
-**1. Backend Terminal:**
-```powershell
-cd Backend_Upscaler
-.\venv\Scripts\Activate.ps1
-uvicorn server:app --reload
-```
+*   **`Backend_Upscaler/`**: Contains the FastAPI server, AI model logic, and python environments.
+*   **`Frontend_Upscaler/`**: Contains the React/Vite source code and UI assets.
+*   **`start_app.bat`**: The main entry point for Windows users to launch the application.
 
-**2. Frontend Terminal:**
-```powershell
-cd Frontend_Upscaler
-npm run dev
-```
+## 🚀 Installation & Usage
 
-## 🛠 Features
-- **Offline**: No cloud dependencies.
-- **4x Upscale**: Uses RealESRGAN x4plus model.
-- **Auto-Device**: Uses GPU (CUDA) if available, otherwise CPU.
+### Prerequisites
+*   **Python 3.11** (Required for the backend environment)
+*   **Node.js** (Required for the frontend environment)
 
-## ⚠️ Troubleshooting
-See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for common issues like "Backend Offline" or dependency errors.
+### How to Run
+1.  Double-click **`start_app.bat`** in the root directory.
+2.  Two terminal windows will open (one for the backend, one for the frontend).
+3.  The application will automatically launch in your default browser (usually at `http://localhost:5173`).
+
+## 📁 Data Directories
+
+*   **`Backend_Upscaler/uploads/`**: Stores images temporarily uploaded for processing.
+*   **`Backend_Upscaler/outputs/`**: Contains the final upscaled images.

@@ -60,3 +60,5 @@ Desktop.ini
 
 # Agent Framework
 .agent/
+
+tracked_files.txt
