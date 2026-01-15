@@ -5,7 +5,7 @@ import PropTypes from 'prop-types';
  * UploadBox Component
  * Handles file drag & drop and selection. Matches the Neo design style.
  */
-const UploadBox = ({ onFileSelect, currentFile, disabled = false }) => {
+const UploadBox = ({ onFileSelect, currentFile, disabled = false, rotation = 0 }) => {
     const [isDragging, setIsDragging] = useState(false);
     const [previewUrl, setPreviewUrl] = useState(null);
 
@@ -68,15 +68,16 @@ const UploadBox = ({ onFileSelect, currentFile, disabled = false }) => {
                 onClick={() => !previewUrl && document.getElementById('file-upload').click()}
             >
                 {previewUrl ? (
-                    <div className="relative w-full h-full p-2 group/preview">
+                    <div className="relative w-full h-full p-2 group/preview overflow-hidden rounded-xl">
                         <img
                             src={previewUrl}
                             alt="Preview"
-                            className="w-full h-full object-contain rounded-xl"
+                            className="w-full h-full object-contain transition-transform duration-300 ease-in-out"
+                            style={{ transform: `rotate(${rotation}deg)` }}
                         />
                         {/* Overlay to replace image */}
                         {!disabled && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover/preview:opacity-100 transition-opacity rounded-xl backdrop-blur-sm"
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover/preview:opacity-100 transition-opacity rounded-xl backdrop-blur-sm z-10"
                                 onClick={(e) => {
                                     e.stopPropagation();
                                     document.getElementById('file-upload').click();
@@ -126,7 +127,8 @@ const UploadBox = ({ onFileSelect, currentFile, disabled = false }) => {
 UploadBox.propTypes = {
     onFileSelect: PropTypes.func.isRequired,
     currentFile: PropTypes.object,
-    disabled: PropTypes.bool
+    disabled: PropTypes.bool,
+    rotation: PropTypes.number
 };
 
 export default UploadBox;

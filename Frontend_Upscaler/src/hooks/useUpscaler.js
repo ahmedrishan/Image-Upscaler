@@ -35,15 +35,22 @@ const useUpscaler = (addToast) => {
         addToast('Image loaded successfully', 'info');
     }, [addToast]);
 
-    const processImage = useCallback(async () => {
-        if (!currentFile) return;
+    const clearResult = useCallback(() => {
+        setStatus('idle');
+        setResult(null);
+        setProgressMessage('');
+    }, []);
+
+    const processImage = useCallback(async (fileOverride = null) => {
+        const fileToUpload = fileOverride || currentFile;
+        if (!fileToUpload) return;
 
         try {
             setStatus('uploading');
             setProgressMessage('Uploading image to backend...');
 
             // 1. Upload
-            const uploadResp = await api.uploadImage(currentFile);
+            const uploadResp = await api.uploadImage(fileToUpload);
             console.log('UseUpscaler: Upload response:', uploadResp);
 
             const filename = uploadResp.filename || currentFile.name; // Fallback only if backend doesn't return it
@@ -79,7 +86,8 @@ const useUpscaler = (addToast) => {
         currentFile,
         handleFileSelect,
         processImage,
-        reset
+        reset,
+        clearResult
     };
 };
 

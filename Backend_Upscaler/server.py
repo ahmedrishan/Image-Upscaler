@@ -145,7 +145,7 @@ def download_image(filename: str):
         print(f"ERROR: File not found at {file_path}")
         raise HTTPException(status_code=404, detail="File not found")
         
-    return FileResponse(file_path)
+    return FileResponse(file_path, filename=filename)
 
 @app.get("/uploads/{filename}")
 def get_uploaded_image(filename: str):

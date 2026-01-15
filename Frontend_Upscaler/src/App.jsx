@@ -4,12 +4,58 @@ import useUpscaler from './hooks/useUpscaler';
 import UploadBox from './components/modules/UploadBox';
 import SettingsPanel from './components/modules/SettingsPanel';
 import ImageSlider from './components/common/ImageSlider';
+import RotationControls from './components/modules/RotationControls';
 import Toast from './components/feedback/Toast';
+import { getRotatedImage } from './utils/imageProcessing';
+
+const MainPreview = ({ currentFile, rotation }) => {
+    const [previewUrl, setPreviewUrl] = useState(null);
+
+    useEffect(() => {
+        if (!currentFile) {
+            setPreviewUrl(null);
+            return;
+        }
+
+        const url = URL.createObjectURL(currentFile);
+        setPreviewUrl(url);
+
+        return () => {
+            URL.revokeObjectURL(url);
+        };
+    }, [currentFile]);
+
+    if (!previewUrl) return null;
+
+    return (
+        <div className="relative w-full h-full flex items-center justify-center">
+            <img
+                src={previewUrl}
+                className="max-h-full max-w-full object-contain opacity-50 blur-sm transition-all duration-700 data-[loaded=true]:blur-0 data-[loaded=true]:opacity-100"
+                style={{
+                    transform: `rotate(${rotation}deg)`,
+                    transition: 'transform 0.3s ease-in-out',
+                    willChange: 'transform'
+                }}
+                alt="Preview"
+            />
+        </div>
+    );
+};
 
 function App() {
+    const [rotation, setRotation] = useState(0);
+
+    // Rotate handlers
+    const rotateLeft = () => setRotation(prev => (prev - 90) % 360);
+    const rotateRight = () => setRotation(prev => (prev + 90) % 360);
+    const resetRotation = () => setRotation(0);
+
     const [toasts, setToasts] = useState([]);
+    const [history, setHistory] = useState([]);
     const [denoisingEnabled, setDenoisingEnabled] = useState(false);
-    const [history, setHistory] = useState([]); // Mock history for now
+
+
 
     // Add toast
     const addToast = (message, type = 'info') => {
@@ -27,13 +73,56 @@ function App() {
 
     const {
         status,
-        progressMessage,
         result,
         currentFile,
         handleFileSelect,
         processImage,
-        reset
+        reset,
+        clearResult
     } = useUpscaler(addToast);
+
+    // Keyboard Shortcuts
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            // Ignore if input/textarea is focused
+            if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
+
+            // Only active if we have a file
+            if (!currentFile) return;
+
+            if (e.key.toLowerCase() === 'r') {
+                if (e.shiftKey) {
+                    rotateLeft();
+                } else {
+                    rotateRight();
+                }
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [currentFile]);
+
+
+
+
+    // Reset rotation when file changes
+    useEffect(() => {
+        setRotation(0);
+    }, [currentFile]);
+
+    // Clear result if rotation changes while we have a result
+    // This forces the user to re-upscale if they want the new rotation applied
+    const isProcessing = status === 'uploading' || status === 'processing';
+    const isReady = status === 'complete' && result;
+
+    // Clear result if rotation changes while we have a result
+    // This forces the user to re-upscale if they want the new rotation applied
+    useEffect(() => {
+        if (isReady && rotation !== 0) {
+            clearResult();
+        }
+    }, [rotation, isReady, clearResult]);
 
     // Mock history update on completion
     useEffect(() => {
@@ -45,15 +134,37 @@ function App() {
         }
     }, [status, result]);
 
-    const handleDownload = () => {
-        if (result?.upscaled) {
-            api.downloadImage(result.upscaled, `neo-upscale-${Date.now()}.png`);
-            addToast('Download started', 'success');
+    const handleProcess = async () => {
+        if (!currentFile) return;
+
+        try {
+            // If rotation is applied, create a new rotated file
+            let fileToProcess = currentFile;
+            if (rotation !== 0) {
+                fileToProcess = await getRotatedImage(currentFile, rotation);
+                console.log('Rotation applied. New file size:', fileToProcess.size);
+            }
+
+            // Pass the (potentially rotated) file to the hook
+            await processImage(fileToProcess);
+
+        } catch (error) {
+            console.error(error);
+            addToast('Failed to process image rotation', 'error');
         }
     };
 
-    const isProcessing = status === 'uploading' || status === 'processing';
-    const isReady = status === 'complete' && result;
+    const handleDownload = async () => {
+        if (result?.upscaled) {
+            try {
+                await api.downloadImage(result.upscaled, `neo-upscale-${Date.now()}.png`);
+                addToast('Download success', 'success');
+            } catch (error) {
+                console.error("Download error:", error);
+                addToast('Download failed. Check console.', 'error');
+            }
+        }
+    };
 
     return (
         <div className="min-h-screen bg-neo-bg text-white selection:bg-neo-accent/30 font-sans flex flex-col overflow-hidden">
@@ -83,6 +194,18 @@ function App() {
                             onFileSelect={handleFileSelect}
                             currentFile={currentFile}
                             disabled={isProcessing}
+                            rotation={rotation}
+                        />
+                    </section>
+
+                    {/* Rotation Controls */}
+                    <section>
+                        <RotationControls
+                            onRotateLeft={rotateLeft}
+                            onRotateRight={rotateRight}
+                            onReset={resetRotation}
+                            rotation={rotation}
+                            disabled={!currentFile || isProcessing}
                         />
                     </section>
 
@@ -103,6 +226,8 @@ function App() {
 
                     {/* Top Bar: Actions */}
                     <div className="flex items-center justify-end mb-8 h-12">
+
+
                         {isProcessing ? (
                             <div className="flex items-center gap-3 text-neo-accent animate-pulse">
                                 <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -113,7 +238,7 @@ function App() {
                             </div>
                         ) : (
                             <button
-                                onClick={processImage}
+                                onClick={handleProcess}
                                 disabled={!currentFile || isProcessing || isReady}
                                 className={`
                                     px-8 py-2.5 rounded-lg font-bold text-sm tracking-wide transition-all duration-300
@@ -162,16 +287,11 @@ function App() {
                                 <ImageSlider
                                     beforeImage={result.original}
                                     afterImage={result.upscaled}
+                                    rotation={0}
                                 />
                             ) : (
                                 /* Preview of uploaded image before active processing */
-                                <div className="relative w-full h-full flex items-center justify-center">
-                                    <img
-                                        src={URL.createObjectURL(currentFile)}
-                                        className="max-h-full max-w-full object-contain opacity-50 blur-sm transition-all duration-700 data-[loaded=true]:blur-0 data-[loaded=true]:opacity-100"
-                                        alt="Preview"
-                                    />
-                                </div>
+                                <MainPreview currentFile={currentFile} rotation={rotation} />
                             )}
                         </div>
 

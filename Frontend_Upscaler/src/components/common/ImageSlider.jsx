@@ -5,7 +5,7 @@ import PropTypes from 'prop-types';
  * ImageSlider (ImageCompare) Component
  * Comparison slider with Neo design.
  */
-const ImageSlider = ({ beforeImage, afterImage }) => {
+const ImageSlider = ({ beforeImage, afterImage, rotation = 0 }) => {
     const [sliderPosition, setSliderPosition] = useState(50);
     const [isResizing, setIsResizing] = useState(false);
     const containerRef = useRef(null);
@@ -46,6 +46,43 @@ const ImageSlider = ({ beforeImage, afterImage }) => {
         };
     }, [handleMouseUp, handleMouseMove, handleTouchMove]);
 
+    const [scale, setScale] = useState(1);
+
+    useEffect(() => {
+        if (!containerRef.current) return;
+
+        const updateScale = () => {
+            if (rotation % 180 === 0) {
+                setScale(1);
+                return;
+            }
+
+            // When rotated 90deg, the image element (width x height) visually becomes (height x width).
+            // We need to fit this turned box into the container.
+            // Since we use object-contain, the image initially fits into the container perfectly (say W x H).
+            // Rotating it makes it H x W.
+            // We need to fit H x W into W x H.
+            // Scale factor needed = min(W / H, H / W).
+
+            const { width, height } = containerRef.current.getBoundingClientRect();
+            if (width && height) {
+                const ratio = Math.min(width / height, height / width);
+                // Clamp scale to max 1 to avoid upscaling artifacts, though minimal risk
+                setScale(ratio);
+            }
+        };
+
+        updateScale();
+        window.addEventListener('resize', updateScale);
+        return () => window.removeEventListener('resize', updateScale);
+    }, [rotation]);
+
+    const imageStyle = {
+        transform: `rotate(${rotation}deg) scale(${scale})`,
+        transition: 'transform 0.3s ease-in-out',
+        willChange: 'transform'
+    };
+
     return (
         <div
             ref={containerRef}
@@ -57,7 +94,12 @@ const ImageSlider = ({ beforeImage, afterImage }) => {
                     src={afterImage}
                     alt="After"
                     className="w-full h-full object-contain"
+                    style={imageStyle}
                     draggable={false}
+                    onError={(e) => {
+                        console.error('ImageSlider: Failed to load AFTER image', afterImage);
+                        e.target.style.opacity = '0.5'; // Visual feedback
+                    }}
                 />
             </div>
 
@@ -70,7 +112,9 @@ const ImageSlider = ({ beforeImage, afterImage }) => {
                     src={beforeImage}
                     alt="Before"
                     className="w-full h-full object-contain"
+                    style={imageStyle}
                     draggable={false}
+                    onError={(e) => console.error('ImageSlider: Failed to load BEFORE image', beforeImage)}
                 />
             </div>
 
@@ -107,7 +151,8 @@ const ImageSlider = ({ beforeImage, afterImage }) => {
 
 ImageSlider.propTypes = {
     beforeImage: PropTypes.string.isRequired,
-    afterImage: PropTypes.string.isRequired
+    afterImage: PropTypes.string.isRequired,
+    rotation: PropTypes.number
 };
 
 export default ImageSlider;
