@@ -30,6 +30,7 @@ class RealESRGANUpscaler:
     ):
         self.scale = scale
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        print(f"Upscaler initialized on device: {self.device}")
 
         self.weights_dir = weights_dir
         os.makedirs(self.weights_dir, exist_ok=True)
