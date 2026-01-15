@@ -45,17 +45,9 @@ const MainPreview = ({ currentFile, rotation }) => {
 
 function App() {
     const [rotation, setRotation] = useState(0);
-
-    // Rotate handlers
-    const rotateLeft = () => setRotation(prev => (prev - 90) % 360);
-    const rotateRight = () => setRotation(prev => (prev + 90) % 360);
-    const resetRotation = () => setRotation(0);
-
     const [toasts, setToasts] = useState([]);
     const [history, setHistory] = useState([]);
     const [denoisingEnabled, setDenoisingEnabled] = useState(false);
-
-
 
     // Add toast
     const addToast = (message, type = 'info') => {
@@ -81,6 +73,20 @@ function App() {
         clearResult
     } = useUpscaler(addToast);
 
+    // Rotate handlers with explicit clear
+    const rotateLeft = () => {
+        setRotation(prev => (prev - 90) % 360);
+        clearResult();
+    };
+    const rotateRight = () => {
+        setRotation(prev => (prev + 90) % 360);
+        clearResult();
+    };
+    const resetRotation = () => {
+        setRotation(0);
+        clearResult();
+    };
+
     // Keyboard Shortcuts
     useEffect(() => {
         const handleKeyDown = (e) => {
@@ -101,28 +107,15 @@ function App() {
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [currentFile]);
-
-
-
+    }, [currentFile, rotateLeft, rotateRight]);
 
     // Reset rotation when file changes
     useEffect(() => {
         setRotation(0);
     }, [currentFile]);
 
-    // Clear result if rotation changes while we have a result
-    // This forces the user to re-upscale if they want the new rotation applied
     const isProcessing = status === 'uploading' || status === 'processing';
     const isReady = status === 'complete' && result;
-
-    // Clear result if rotation changes while we have a result
-    // This forces the user to re-upscale if they want the new rotation applied
-    useEffect(() => {
-        if (isReady && rotation !== 0) {
-            clearResult();
-        }
-    }, [rotation, isReady, clearResult]);
 
     // Mock history update on completion
     useEffect(() => {
@@ -138,12 +131,10 @@ function App() {
         if (!currentFile) return;
 
         try {
-            // If rotation is applied, create a new rotated file
-            let fileToProcess = currentFile;
-            if (rotation !== 0) {
-                fileToProcess = await getRotatedImage(currentFile, rotation);
-                console.log('Rotation applied. New file size:', fileToProcess.size);
-            }
+            // Always normalize the image (bake EXIF rotation) before uploading
+            // This ensures what the user sees (browser processed EXIF) matches what backend receives (raw pixels)
+            let fileToProcess = await getRotatedImage(currentFile, rotation, true);
+            console.log('Image processed/normalized. New file size:', fileToProcess.size);
 
             // Pass the (potentially rotated) file to the hook
             await processImage(fileToProcess);

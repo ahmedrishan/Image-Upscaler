@@ -6,9 +6,9 @@
  * @param {number} rotation - Rotation in degrees (e.g., 90, 180, 270).
  * @returns {Promise<File>} - Resolves with the rotated File.
  */
-export const getRotatedImage = (file, rotation) => {
+export const getRotatedImage = (file, rotation, force = false) => {
     return new Promise((resolve, reject) => {
-        if (rotation === 0) {
+        if (rotation === 0 && !force) {
             resolve(file);
             return;
         }
