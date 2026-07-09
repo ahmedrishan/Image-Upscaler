@@ -31,7 +31,7 @@ const MainPreview = ({ currentFile, rotation }) => {
         <div className="relative w-full h-full flex items-center justify-center">
             <img
                 src={previewUrl}
-                className="max-h-full max-w-full object-contain opacity-50 blur-sm transition-all duration-700 data-[loaded=true]:blur-0 data-[loaded=true]:opacity-100"
+                className="max-h-full max-w-full object-contain"
                 style={{
                     transform: `rotate(${rotation}deg)`,
                     transition: 'transform 0.3s ease-in-out',
@@ -45,6 +45,7 @@ const MainPreview = ({ currentFile, rotation }) => {
 
 function App() {
     const [rotation, setRotation] = useState(0);
+    const [upscaleRotation, setUpscaleRotation] = useState(0);
     const [toasts, setToasts] = useState([]);
     const [history, setHistory] = useState([]);
     const [denoisingEnabled, setDenoisingEnabled] = useState(false);
@@ -73,18 +74,28 @@ function App() {
         clearResult
     } = useUpscaler(addToast);
 
-    // Rotate handlers with explicit clear
+    const isProcessing = status === 'uploading' || status === 'processing';
+    const isReady = status === 'complete' && result;
+    const relativeRotation = ((rotation - upscaleRotation) % 360 + 360) % 360;
+
+    // Rotate handlers with conditional clear
     const rotateLeft = () => {
         setRotation(prev => (prev - 90) % 360);
-        clearResult();
+        if (!isReady) {
+            clearResult();
+        }
     };
     const rotateRight = () => {
         setRotation(prev => (prev + 90) % 360);
-        clearResult();
+        if (!isReady) {
+            clearResult();
+        }
     };
     const resetRotation = () => {
         setRotation(0);
-        clearResult();
+        if (!isReady) {
+            clearResult();
+        }
     };
 
     // Keyboard Shortcuts
@@ -112,10 +123,8 @@ function App() {
     // Reset rotation when file changes
     useEffect(() => {
         setRotation(0);
+        setUpscaleRotation(0);
     }, [currentFile]);
-
-    const isProcessing = status === 'uploading' || status === 'processing';
-    const isReady = status === 'complete' && result;
 
     // Mock history update on completion
     useEffect(() => {
@@ -131,6 +140,9 @@ function App() {
         if (!currentFile) return;
 
         try {
+            // Save the rotation at the moment of upscaling
+            setUpscaleRotation(rotation);
+
             // Always normalize the image (bake EXIF rotation) before uploading
             // This ensures what the user sees (browser processed EXIF) matches what backend receives (raw pixels)
             let fileToProcess = await getRotatedImage(currentFile, rotation, true);
@@ -148,7 +160,36 @@ function App() {
     const handleDownload = async () => {
         if (result?.upscaled) {
             try {
-                await api.downloadImage(result.upscaled, `neo-upscale-${Date.now()}.png`);
+                // Get correct file extension
+                const getExtension = (url) => {
+                    const filename = url.split('/').pop() || '';
+                    const match = filename.match(/\.[^.]+$/);
+                    return match ? match[0] : '.png';
+                };
+                const ext = getExtension(result.upscaled);
+                const downloadName = `neo-upscale-${Date.now()}${ext}`;
+
+                if (relativeRotation === 0) {
+                    await api.downloadImage(result.upscaled, downloadName);
+                } else {
+                    // Fetch the image blob first
+                    const response = await fetch(result.upscaled);
+                    const blob = await response.blob();
+                    // Rotate the blob using the relative rotation
+                    const rotatedFile = await getRotatedImage(blob, relativeRotation, true);
+                    const localUrl = URL.createObjectURL(rotatedFile);
+                    
+                    // Trigger download
+                    const link = document.createElement('a');
+                    link.href = localUrl;
+                    link.setAttribute('download', downloadName);
+                    document.body.appendChild(link);
+                    link.click();
+                    link.parentNode.removeChild(link);
+                    setTimeout(() => {
+                        URL.revokeObjectURL(localUrl);
+                    }, 1000);
+                }
                 addToast('Download success', 'success');
             } catch (error) {
                 console.error("Download error:", error);
@@ -278,7 +319,7 @@ function App() {
                                 <ImageSlider
                                     beforeImage={result.original}
                                     afterImage={result.upscaled}
-                                    rotation={0}
+                                    rotation={relativeRotation}
                                 />
                             ) : (
                                 /* Preview of uploaded image before active processing */

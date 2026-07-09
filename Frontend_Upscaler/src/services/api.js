@@ -121,16 +121,12 @@ const api = {
             const cleanName = filename.split(/[/\\]/).pop();
             const downloadUrl = `${BASE_URL}/download/${encodeURIComponent(cleanName)}`;
 
-            const response = await axios.get(downloadUrl, { responseType: 'blob' });
-
-            const url = window.URL.createObjectURL(new Blob([response.data]));
             const link = document.createElement('a');
-            link.href = url;
+            link.href = downloadUrl;
             link.setAttribute('download', cleanName);
             document.body.appendChild(link);
             link.click();
-            link.parentNode.removeChild(link);
-            window.URL.revokeObjectURL(url);
+            document.body.removeChild(link);
         } catch (error) {
             console.error('Download failed:', error);
             throw new Error('Failed to download image ' + filename);
@@ -149,14 +145,16 @@ const api = {
 
         try {
             const response = await axios.get(imageUrl, { responseType: 'blob' });
-            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const url = window.URL.createObjectURL(response.data);
             const link = document.createElement('a');
             link.href = url;
             link.setAttribute('download', filename || 'upscaled.png');
             document.body.appendChild(link);
             link.click();
             link.parentNode.removeChild(link);
-            window.URL.revokeObjectURL(url);
+            setTimeout(() => {
+                window.URL.revokeObjectURL(url);
+            }, 1000);
         } catch (error) {
             console.error('Download failed:', error);
             throw new Error('Failed to download image');

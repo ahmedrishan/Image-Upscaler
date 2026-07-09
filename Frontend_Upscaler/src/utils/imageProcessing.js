@@ -44,12 +44,12 @@ export const getRotatedImage = (file, rotation, force = false) => {
                     reject(new Error('Canvas to Blob conversion failed'));
                     return;
                 }
-                const rotatedFile = new File([blob], file.name, {
-                    type: file.type,
+                const rotatedFile = new File([blob], file.name || 'image.png', {
+                    type: file.type || blob.type || 'image/png',
                     lastModified: Date.now(),
                 });
                 resolve(rotatedFile);
-            }, file.type);
+            }, file.type || 'image/png');
         };
 
         img.onerror = (err) => {
