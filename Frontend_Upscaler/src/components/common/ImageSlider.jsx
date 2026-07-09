@@ -47,6 +47,7 @@ const ImageSlider = ({ beforeImage, afterImage, rotation = 0 }) => {
     }, [handleMouseUp, handleMouseMove, handleTouchMove]);
 
     const [scale, setScale] = useState(1);
+    const [dimensions, setDimensions] = useState(null);
 
     useEffect(() => {
         if (!containerRef.current) return;
@@ -57,25 +58,31 @@ const ImageSlider = ({ beforeImage, afterImage, rotation = 0 }) => {
                 return;
             }
 
-            // When rotated 90deg, the image element (width x height) visually becomes (height x width).
-            // We need to fit this turned box into the container.
-            // Since we use object-contain, the image initially fits into the container perfectly (say W x H).
-            // Rotating it makes it H x W.
-            // We need to fit H x W into W x H.
-            // Scale factor needed = min(W / H, H / W).
-
             const { width, height } = containerRef.current.getBoundingClientRect();
             if (width && height) {
-                const ratio = Math.min(width / height, height / width);
-                // Clamp scale to max 1 to avoid upscaling artifacts, though minimal risk
-                setScale(ratio);
+                if (dimensions && dimensions.width && dimensions.height) {
+                    const ar = dimensions.width / dimensions.height;
+                    let iw, ih;
+                    if (ar > width / height) {
+                        iw = width;
+                        ih = width / ar;
+                    } else {
+                        iw = height * ar;
+                        ih = height;
+                    }
+                    const maxScale = Math.min(width / ih, height / iw);
+                    setScale(Math.min(1, maxScale));
+                } else {
+                    const ratio = Math.min(width / height, height / width);
+                    setScale(ratio);
+                }
             }
         };
 
         updateScale();
         window.addEventListener('resize', updateScale);
         return () => window.removeEventListener('resize', updateScale);
-    }, [rotation]);
+    }, [rotation, dimensions]);
 
     const imageStyle = {
         transform: `rotate(${rotation}deg) scale(${scale})`,
@@ -114,6 +121,12 @@ const ImageSlider = ({ beforeImage, afterImage, rotation = 0 }) => {
                     className="w-full h-full object-contain"
                     style={imageStyle}
                     draggable={false}
+                    onLoad={(e) => {
+                        setDimensions({
+                            width: e.target.naturalWidth,
+                            height: e.target.naturalHeight
+                        });
+                    }}
                     onError={(e) => console.error('ImageSlider: Failed to load BEFORE image', beforeImage)}
                 />
             </div>

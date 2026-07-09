@@ -10,10 +10,14 @@ import { getRotatedImage } from './utils/imageProcessing';
 
 const MainPreview = ({ currentFile, rotation }) => {
     const [previewUrl, setPreviewUrl] = useState(null);
+    const [scale, setScale] = useState(1);
+    const [dimensions, setDimensions] = useState(null);
+    const containerRef = React.useRef(null);
 
     useEffect(() => {
         if (!currentFile) {
             setPreviewUrl(null);
+            setDimensions(null);
             return;
         }
 
@@ -25,15 +29,55 @@ const MainPreview = ({ currentFile, rotation }) => {
         };
     }, [currentFile]);
 
+    useEffect(() => {
+        if (!containerRef.current) return;
+
+        const updateScale = () => {
+            if (rotation % 180 === 0) {
+                setScale(1);
+                return;
+            }
+
+            const { width, height } = containerRef.current.getBoundingClientRect();
+            if (width && height && dimensions && dimensions.width && dimensions.height) {
+                const ar = dimensions.width / dimensions.height;
+                let iw, ih;
+                if (ar > width / height) {
+                    iw = width;
+                    ih = width / ar;
+                } else {
+                    iw = height * ar;
+                    ih = height;
+                }
+                const maxScale = Math.min(width / ih, height / iw);
+                setScale(Math.min(1, maxScale));
+            } else if (width && height) {
+                // Fallback to old behavior if dimensions not loaded yet
+                const ratio = Math.min(width / height, height / width);
+                setScale(ratio);
+            }
+        };
+
+        updateScale();
+        window.addEventListener('resize', updateScale);
+        return () => window.removeEventListener('resize', updateScale);
+    }, [rotation, dimensions]);
+
     if (!previewUrl) return null;
 
     return (
-        <div className="relative w-full h-full flex items-center justify-center">
+        <div ref={containerRef} className="relative w-full h-full flex items-center justify-center">
             <img
                 src={previewUrl}
+                onLoad={(e) => {
+                    setDimensions({
+                        width: e.target.naturalWidth,
+                        height: e.target.naturalHeight
+                    });
+                }}
                 className="max-h-full max-w-full object-contain"
                 style={{
-                    transform: `rotate(${rotation}deg)`,
+                    transform: `rotate(${rotation}deg) scale(${scale})`,
                     transition: 'transform 0.3s ease-in-out',
                     willChange: 'transform'
                 }}
@@ -305,7 +349,7 @@ function App() {
                         </div>
 
                         {/* Visulization Container */}
-                        <div className="flex-1 rounded-2xl bg-[#0a0a0b] border border-white/5 relative flex items-center justify-center p-4">
+                        <div className="w-full h-[532px] rounded-2xl bg-[#0a0a0b] border border-white/5 relative flex items-center justify-center p-4">
                             {!currentFile ? (
                                 <div className="text-center opacity-30">
                                     <div className="w-16 h-16 mx-auto mb-4 rounded-xl border-2 border-dashed border-white/20 flex items-center justify-center">
