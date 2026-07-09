@@ -87,6 +87,15 @@ const api = {
     },
 
     /**
+     * Get current tile progress for an image upscale.
+     * Endpoint: GET /progress/{filename}
+     * Returns: { status, current, total, percent }
+     */
+    getProgress: async (filename) => {
+        return apiClient.get(`/progress/${encodeURIComponent(filename)}`);
+    },
+
+    /**
      * Helper to construct full image URL from a path
      * If path is "outputs/upscaled_abc.jpg", we want http://.../download/upscaled_abc.jpg
      * OR we can serve static files. 

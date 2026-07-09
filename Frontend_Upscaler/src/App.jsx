@@ -110,6 +110,8 @@ function App() {
 
     const {
         status,
+        progress,
+        progressMessage,
         result,
         currentFile,
         handleFileSelect,
@@ -310,7 +312,14 @@ function App() {
                                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                 </svg>
-                                <span className="text-sm font-medium tracking-wide">Processing... 60%</span>
+                                <div className="text-right">
+                                    <div className="text-sm font-medium tracking-wide">
+                                        {status === 'uploading' ? 'Uploading...' : `Processing... ${progress}%`}
+                                    </div>
+                                    {status === 'processing' && progressMessage && (
+                                        <div className="text-xs text-blue-300/70">{progressMessage}</div>
+                                    )}
+                                </div>
                             </div>
                         ) : (
                             <button

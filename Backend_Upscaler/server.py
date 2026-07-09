@@ -1,6 +1,7 @@
 import os
 import shutil
 import re
+from threading import Lock
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -20,6 +21,43 @@ ALLOWED_ORIGINS = [
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+progress_lock = Lock()
+progress_by_filename = {}
+
+
+def set_progress(filename, status, current=0, total=0, error=None):
+    percent = 0
+    if total:
+        percent = round((current / total) * 100)
+    elif status == "complete":
+        percent = 100
+
+    with progress_lock:
+        progress_by_filename[filename] = {
+            "filename": filename,
+            "status": status,
+            "current": current,
+            "total": total,
+            "percent": max(0, min(100, percent)),
+            "error": error,
+        }
+
+
+def update_tile_progress(filename, current, total):
+    set_progress(filename, "processing", current=current, total=total)
+
+
+def get_progress(filename):
+    with progress_lock:
+        return progress_by_filename.get(filename, {
+            "filename": filename,
+            "status": "idle",
+            "current": 0,
+            "total": 0,
+            "percent": 0,
+            "error": None,
+        })
+
 # --- App & Middleware ---
 app = FastAPI()
 
@@ -32,10 +70,18 @@ app.add_middleware(
 )
 
 # --- Model Initialization ---
+active_progress_filename = None
+
+
+def handle_upscaler_progress(current, total):
+    if active_progress_filename:
+        update_tile_progress(active_progress_filename, current, total)
+
+
 # Initialize usage of RealESRGANUpscaler
 # We use a global instance to load model once (which is expensive)
 # tile=256 helps avoid OOM on lower-end GPUs
-upscaler = RealESRGANUpscaler(tile=256)
+upscaler = RealESRGANUpscaler(tile=256, progress_callback=handle_upscaler_progress)
 
 # --- Pydantic Models ---
 class UpscaleRequest(BaseModel):
@@ -52,6 +98,15 @@ def health_check():
         "status": "ok",
         "device": upscaler.device
     }
+
+@app.get("/progress/{filename}")
+def upscale_progress(filename: str):
+    """
+    Return the latest tile progress for an upscale request.
+    """
+    filename = os.path.basename(filename)
+    filename = re.sub(r'[^a-zA-Z0-9_.-]', '_', filename)
+    return get_progress(filename)
 
 @app.post("/upload")
 async def upload_image(file: UploadFile = File(...)):
@@ -119,14 +174,22 @@ def upscale_image(request: UpscaleRequest):
     output_filename = f"upscaled_{request.filename}"
     output_path = os.path.join(OUTPUT_DIR, output_filename)
 
+    global active_progress_filename
+
     try:
         # synchronous call to model
         print(f"DEBUG: Starting upscale -> {output_path}")
+        active_progress_filename = request.filename
+        set_progress(request.filename, "processing", current=0, total=0)
         upscaler.upscale_and_save(input_path, output_path)
+        set_progress(request.filename, "complete", current=1, total=1)
         print(f"DEBUG: Upscale finished")
     except Exception as e:
         print(f"ERROR: Upscaling failed: {e}")
+        set_progress(request.filename, "error", error=str(e))
         raise HTTPException(status_code=500, detail=f"Upscaling failed: {str(e)}")
+    finally:
+        active_progress_filename = None
 
     return {
         "output": output_path,
