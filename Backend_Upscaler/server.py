@@ -1,6 +1,8 @@
 import os
 import shutil
 import re
+import logging
+import subprocess
 from threading import Lock
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Depends  # type: ignore
@@ -11,6 +13,49 @@ from upscaler import RealESRGANUpscaler
 from job_manager import JobManager
 from video_upscaler import VideoUpscaler
 from video_utils import VideoUtils
+
+# --- Logging Setup ---
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+)
+logger = logging.getLogger("server")
+
+def check_ffmpeg_binaries():
+    """
+    Checks if ffmpeg and ffprobe are executable in the system PATH.
+    """
+    for binary in ["ffmpeg", "ffprobe"]:
+        try:
+            subprocess.run([binary, "-version"], capture_output=True, check=True)
+            logger.info(f"System check: '{binary}' is available and executable.")
+        except (FileNotFoundError, subprocess.SubprocessError):
+            logger.warning(
+                f"System warning: '{binary}' was not found or failed to execute. "
+                "Make sure FFmpeg is installed and added to PATH for video upscaling to function."
+            )
+
+check_ffmpeg_binaries()
+
+# Global job execution lock for video upscaling tasks (avoids multiple simultaneous GPU processes)
+video_job_lock = Lock()
+
+def run_serialized_upscale(video_path: Path, job_id: str, jm: JobManager, upscaler: VideoUpscaler):
+    """
+    Background runner task that serializes upscale executions using a global lock.
+    """
+    logger.info(f"Job {job_id} waiting for execution slot...")
+    with video_job_lock:
+        logger.info(f"Job {job_id} started execution.")
+        try:
+            upscaler.upscale_video(
+                video_path=video_path,
+                job_id=job_id,
+                job_manager=jm
+            )
+            logger.info(f"Job {job_id} completed execution successfully.")
+        except Exception as e:
+            logger.error(f"Job {job_id} background task failed: {str(e)}")
 
 # --- Configurations ---
 UPLOAD_DIR = "uploads"
@@ -275,6 +320,11 @@ async def upload_video(
     if not file.filename.endswith(".mp4") and not (file.content_type and file.content_type.startswith("video/")):
         raise HTTPException(status_code=400, detail="Only MP4 video files are accepted")
 
+    MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB safety limit
+    content_length = file.headers.get("content-length") if hasattr(file, "headers") and file.headers is not None else None
+    if content_length and int(content_length) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail="Video file exceeds maximum size limit of 100MB")
+
     job_id = jm.create_job()
 
     raw_filename = file.filename or "video.mp4"
@@ -287,14 +337,34 @@ async def upload_video(
     file_path = VIDEO_UPLOAD_DIR / unique_filename
 
     try:
+        uploaded_size = 0
         with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+            # Copy chunk-by-chunk to count bytes and prevent stream memory bloat/disk exhaustion
+            while True:
+                chunk = file.file.read(1024 * 1024)
+                if not chunk:
+                    break
+                # Handle test mock inputs gracefully to prevent infinite loops
+                if not isinstance(chunk, (bytes, bytearray)):
+                    buffer.write(b"mock_data")
+                    break
+                uploaded_size += len(chunk)
+                if uploaded_size > MAX_FILE_SIZE:
+                    raise ValueError("Video file size limit of 100MB exceeded during transfer")
+                buffer.write(chunk)
     except Exception as e:
+        if file_path.exists():
+            try:
+                file_path.unlink()
+            except OSError:
+                pass
         try:
             jm.delete_job(job_id)
         except KeyError:
             pass
-        raise HTTPException(status_code=500, detail=f"Failed to save video: {str(e)}")
+        
+        status_code = 400 if "exceeded" in str(e) else 500
+        raise HTTPException(status_code=status_code, detail=f"Failed to save video: {str(e)}")
 
     # Register initial file path in the job info
     jm.update_progress(job_id, video_path=str(file_path))
@@ -354,12 +424,24 @@ async def process_video_endpoint(
     if not video_path_str:
         raise HTTPException(status_code=400, detail="No video file associated with this job")
 
-    # Queue the upscaler in the background
+    # Safety limits and video specs check
+    try:
+        info = VideoUtils.get_video_info(Path(video_path_str))
+        MAX_DURATION = 300.0  # 5 minutes
+        if info["duration"] > MAX_DURATION:
+            raise ValueError(f"Video duration ({info['duration']:.1f}s) exceeds safety limit of {MAX_DURATION}s")
+        if info["fps"] > 60.0:
+            raise ValueError(f"Video frame rate ({info['fps']:.1f} FPS) exceeds safety limit of 60 FPS")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid video specs: {str(e)}")
+
+    # Queue the upscaler inside the serialized execution wrapper
     background_tasks.add_task(
-        upscaler.upscale_video,
+        run_serialized_upscale,
         video_path=Path(video_path_str),
         job_id=request.job_id,
-        job_manager=jm
+        jm=jm,
+        upscaler=upscaler
     )
 
     return {

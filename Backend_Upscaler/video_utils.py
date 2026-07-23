@@ -1,7 +1,11 @@
 import json
 import subprocess
 import shutil
+import logging
+import time
 from pathlib import Path
+
+logger = logging.getLogger("video_utils")
 
 class VideoUtils:
     """
@@ -45,17 +49,24 @@ class VideoUtils:
             str(video_path)
         ]
 
+        logger.info(f"Running ffprobe to fetch metadata for: {video_path}")
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=60)
             data = json.loads(result.stdout)
+        except subprocess.TimeoutExpired as e:
+            logger.error(f"ffprobe execution timed out for {video_path}")
+            raise RuntimeError(f"ffprobe execution timed out: {str(e)}") from e
         except FileNotFoundError as e:
+            logger.error("ffprobe executable not found in PATH")
             raise RuntimeError(
                 "ffprobe is not installed or not found in the system PATH. "
                 "Please install FFmpeg/FFprobe and add them to your environment variables."
             ) from e
         except subprocess.CalledProcessError as e:
+            logger.error(f"ffprobe execution failed: {e.stderr or e.stdout or str(e)}")
             raise RuntimeError(f"ffprobe execution failed: {e.stderr or e.stdout or str(e)}")
         except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse ffprobe JSON output: {str(e)}")
             raise RuntimeError(f"Failed to parse ffprobe JSON output: {str(e)}")
 
         streams = data.get("streams", [])
@@ -149,14 +160,20 @@ class VideoUtils:
             str(output_pattern)
         ]
         
+        logger.info(f"Extracting frames from: {video_path} into: {frames_dir}")
         try:
-            subprocess.run(cmd, capture_output=True, text=True, check=True)
+            subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=600)
+        except subprocess.TimeoutExpired as e:
+            logger.error(f"ffmpeg frame extraction timed out for {video_path}")
+            raise RuntimeError(f"ffmpeg frame extraction timed out: {str(e)}") from e
         except FileNotFoundError as e:
+            logger.error("ffmpeg executable not found in PATH")
             raise RuntimeError(
                 "ffmpeg is not installed or not found in the system PATH. "
                 "Please install FFmpeg and add it to your environment variables."
             ) from e
         except subprocess.CalledProcessError as e:
+            logger.error(f"ffmpeg frame extraction failed: {e.stderr or e.stdout or str(e)}")
             raise RuntimeError(f"ffmpeg frame extraction failed: {e.stderr or e.stdout or str(e)}")
             
         frames = sorted(list(frames_dir.glob("*.png")))
@@ -199,15 +216,21 @@ class VideoUtils:
             str(output_audio)
         ]
         
+        logger.info(f"Extracting audio from: {video_path} into: {output_audio}")
         try:
-            subprocess.run(cmd, capture_output=True, text=True, check=True)
+            subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
             return True
+        except subprocess.TimeoutExpired as e:
+            logger.error(f"ffmpeg audio extraction timed out for {video_path}")
+            raise RuntimeError(f"ffmpeg audio extraction timed out: {str(e)}") from e
         except FileNotFoundError as e:
+            logger.error("ffmpeg executable not found in PATH")
             raise RuntimeError(
                 "ffmpeg is not installed or not found in the system PATH. "
                 "Please install FFmpeg and add it to your environment variables."
             ) from e
         except subprocess.CalledProcessError as e:
+            logger.error(f"ffmpeg audio extraction failed: {e.stderr or e.stdout or str(e)}")
             raise RuntimeError(f"ffmpeg audio extraction failed: {e.stderr or e.stdout or str(e)}")
 
     @staticmethod
@@ -251,15 +274,21 @@ class VideoUtils:
             str(output_video)
         ]
         
+        logger.info(f"Rebuilding video from: {frames_dir} at {fps} FPS to: {output_video}")
         try:
-            subprocess.run(cmd, capture_output=True, text=True, check=True)
+            subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=600)
             return output_video
+        except subprocess.TimeoutExpired as e:
+            logger.error(f"ffmpeg video rebuild timed out for {output_video}")
+            raise RuntimeError(f"ffmpeg video rebuild timed out: {str(e)}") from e
         except FileNotFoundError as e:
+            logger.error("ffmpeg executable not found in PATH")
             raise RuntimeError(
                 "ffmpeg is not installed or not found in the system PATH. "
                 "Please install FFmpeg and add it to your environment variables."
             ) from e
         except subprocess.CalledProcessError as e:
+            logger.error(f"ffmpeg video rebuild failed: {e.stderr or e.stdout or str(e)}")
             raise RuntimeError(f"ffmpeg video rebuild failed: {e.stderr or e.stdout or str(e)}")
 
     @staticmethod
@@ -308,15 +337,21 @@ class VideoUtils:
             str(final_output)
         ]
         
+        logger.info(f"Merging audio: {audio_file} with video: {video_without_audio} to: {final_output}")
         try:
-            subprocess.run(cmd, capture_output=True, text=True, check=True)
+            subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
             return final_output
+        except subprocess.TimeoutExpired as e:
+            logger.error(f"ffmpeg merge audio timed out for {final_output}")
+            raise RuntimeError(f"ffmpeg merge audio timed out: {str(e)}") from e
         except FileNotFoundError as e:
+            logger.error("ffmpeg executable not found in PATH")
             raise RuntimeError(
                 "ffmpeg is not installed or not found in the system PATH. "
                 "Please install FFmpeg and add it to your environment variables."
             ) from e
-        except subprocess.CalledProcessError:
+        except (subprocess.CalledProcessError, Exception) as e_copy:
+            logger.warning(f"ffmpeg stream copy merge failed, attempting transcoding fallback: {str(e_copy)}")
             # Fallback to transcoding the audio to AAC if copy fails (e.g., container format mismatch)
             cmd_transcode = [
                 "ffmpeg",
@@ -331,14 +366,19 @@ class VideoUtils:
                 str(final_output)
             ]
             try:
-                subprocess.run(cmd_transcode, capture_output=True, text=True, check=True)
+                subprocess.run(cmd_transcode, capture_output=True, text=True, check=True, timeout=300)
                 return final_output
+            except subprocess.TimeoutExpired as e:
+                logger.error(f"ffmpeg transcoding merge audio timed out for {final_output}")
+                raise RuntimeError(f"ffmpeg transcoding merge audio timed out: {str(e)}") from e
             except FileNotFoundError as e:
+                logger.error("ffmpeg executable not found in PATH")
                 raise RuntimeError(
                     "ffmpeg is not installed or not found in the system PATH. "
                     "Please install FFmpeg and add it to your environment variables."
                 ) from e
             except subprocess.CalledProcessError as e_transcode:
+                logger.error(f"ffmpeg audio merge fallback transcoding failed: {e_transcode.stderr or e_transcode.stdout or str(e_transcode)}")
                 raise RuntimeError(
                     f"ffmpeg audio merge failed (copy and transcoding fallback failed): "
                     f"{e_transcode.stderr or e_transcode.stdout or str(e_transcode)}"
@@ -360,9 +400,16 @@ class VideoUtils:
         """
         temp_directory = Path(temp_directory)
         if temp_directory.exists() and temp_directory.is_dir():
-            try:
-                shutil.rmtree(temp_directory)
-                return True
-            except Exception as e:
-                raise RuntimeError(f"Failed to clean up temp directory {temp_directory}: {str(e)}")
+            logger.info(f"Cleaning up directory: {temp_directory}")
+            for attempt in range(3):
+                try:
+                    shutil.rmtree(temp_directory)
+                    return True
+                except Exception as e:
+                    if attempt < 2:
+                        logger.warning(f"Cleanup attempt {attempt + 1} failed for {temp_directory}: {str(e)}. Retrying...")
+                        time.sleep(0.5)
+                    else:
+                        logger.error(f"Failed to clean up temp directory {temp_directory} after 3 attempts: {str(e)}")
+                        raise RuntimeError(f"Failed to clean up temp directory {temp_directory}: {str(e)}") from e
         return False
