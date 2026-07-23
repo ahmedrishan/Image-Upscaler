@@ -168,6 +168,70 @@ const api = {
             console.error('Download failed:', error);
             throw new Error('Failed to download image');
         }
+    },
+
+    /**
+     * Upload a video file (.mp4)
+     * Endpoint: POST /video/upload
+     */
+    uploadVideo: async (file) => {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        return apiClient.post('/video/upload', formData, {
+            headers: {
+                'Content-Type': 'multipart/form-data',
+            },
+        });
+    },
+
+    /**
+     * Get video specs/info
+     * Endpoint: POST /video/info
+     */
+    getVideoInfo: async (jobId) => {
+        return apiClient.post('/video/info', { job_id: jobId });
+    },
+
+    /**
+     * Request video processing (asynchronous)
+     * Endpoint: POST /video/process
+     */
+    processVideo: async (jobId) => {
+        return apiClient.post('/video/process', { job_id: jobId });
+    },
+
+    /**
+     * Get video job progress status
+     * Endpoint: GET /video/progress/{job_id}
+     */
+    getVideoProgress: async (jobId) => {
+        return apiClient.get(`/video/progress/${encodeURIComponent(jobId)}`);
+    },
+
+    /**
+     * Get direct download link for upscaled video
+     */
+    getVideoDownloadUrl: (jobId) => {
+        return `${BASE_URL}/video/download/${encodeURIComponent(jobId)}`;
+    },
+
+    /**
+     * Download completed video
+     */
+    downloadVideo: (jobId, filename) => {
+        try {
+            const downloadUrl = api.getVideoDownloadUrl(jobId);
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.setAttribute('download', filename || 'upscaled_video.mp4');
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        } catch (error) {
+            console.error('Download failed:', error);
+            throw new Error('Failed to download video');
+        }
     }
 };
 

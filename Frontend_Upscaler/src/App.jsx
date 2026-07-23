@@ -7,6 +7,7 @@ import ImageSlider from './components/common/ImageSlider';
 import RotationControls from './components/modules/RotationControls';
 import Toast from './components/feedback/Toast';
 import { getRotatedImage } from './utils/imageProcessing';
+import VideoUpscalerPanel from './components/modules/VideoUpscalerPanel';
 
 const MainPreview = ({ currentFile, rotation }) => {
     const [previewUrl, setPreviewUrl] = useState(null);
@@ -88,6 +89,7 @@ const MainPreview = ({ currentFile, rotation }) => {
 };
 
 function App() {
+    const [activeTab, setActiveTab] = useState('image'); // 'image' or 'video'
     const [rotation, setRotation] = useState(0);
     const [upscaleRotation, setUpscaleRotation] = useState(0);
     const [toasts, setToasts] = useState([]);
@@ -249,10 +251,33 @@ function App() {
 
             {/* --- HEADER --- */}
             <header className="h-16 border-b border-white/5 px-8 flex items-center justify-between bg-neo-bg/95 backdrop-blur z-50">
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-8">
                     <div className="text-xl font-bold tracking-tight">
                         TEDDY <span className="font-light text-gray-400">UPSCALER</span>
                     </div>
+                    {/* Top Tab Navigation */}
+                    <nav className="flex items-center gap-2">
+                        <button
+                            onClick={() => setActiveTab('image')}
+                            className={`px-4 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all duration-200 ${
+                                activeTab === 'image'
+                                    ? 'bg-zinc-800 text-white border border-white/10 shadow-md shadow-black/20'
+                                    : 'text-zinc-400 hover:text-white'
+                            }`}
+                        >
+                            Image
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('video')}
+                            className={`px-4 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all duration-200 ${
+                                activeTab === 'video'
+                                    ? 'bg-zinc-800 text-white border border-white/10 shadow-md shadow-black/20'
+                                    : 'text-zinc-400 hover:text-white'
+                            }`}
+                        >
+                            Video
+                        </button>
+                    </nav>
                 </div>
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-900 border border-white/5">
                     <span className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] animate-pulse" />
@@ -261,7 +286,8 @@ function App() {
             </header>
 
             {/* --- MAIN LAYOUT --- */}
-            <main className="flex-1 grid grid-cols-1 lg:grid-cols-[400px_1fr] h-[calc(100vh-64px)] overflow-hidden">
+            {activeTab === 'image' ? (
+                <main className="flex-1 grid grid-cols-1 lg:grid-cols-[400px_1fr] h-[calc(100vh-64px)] overflow-hidden">
 
                 {/* LEFT PANEL: Upload & Settings */}
                 <aside className="h-full border-r border-white/5 bg-[#111112] p-6 flex flex-col gap-6 overflow-y-auto">
@@ -435,6 +461,9 @@ function App() {
                     </div>
                 </section>
             </main>
+            ) : (
+                <VideoUpscalerPanel addToast={addToast} />
+            )}
 
             {/* Toast Container */}
             <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2 pointer-events-none">
