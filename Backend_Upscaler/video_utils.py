@@ -93,13 +93,25 @@ class VideoUtils:
                 except ValueError:
                     pass
 
+        # Extract Frame Count
+        nb_frames_str = v_stream.get("nb_frames")
+        frame_count = 0
+        if nb_frames_str and nb_frames_str != "N/A":
+            try:
+                frame_count = int(nb_frames_str)
+            except ValueError:
+                pass
+        if frame_count <= 0:
+            frame_count = int(duration * fps)
+
         return {
             "width": int(v_stream.get("width", 0)),
             "height": int(v_stream.get("height", 0)),
             "fps": fps,
             "duration": duration,
             "codec_name": v_stream.get("codec_name", "unknown"),
-            "has_audio": a_stream is not None
+            "has_audio": a_stream is not None,
+            "frame_count": frame_count
         }
 
     @staticmethod

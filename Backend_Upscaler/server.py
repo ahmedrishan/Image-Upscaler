@@ -2,11 +2,15 @@ import os
 import shutil
 import re
 from threading import Lock
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from pathlib import Path
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Depends  # type: ignore
+from fastapi.middleware.cors import CORSMiddleware  # type: ignore
+from fastapi.responses import FileResponse  # type: ignore
 from pydantic import BaseModel
 from upscaler import RealESRGANUpscaler
+from job_manager import JobManager
+from video_upscaler import VideoUpscaler
+from video_utils import VideoUtils
 
 # --- Configurations ---
 UPLOAD_DIR = "uploads"
@@ -20,6 +24,23 @@ ALLOWED_ORIGINS = [
 # Ensure directories exist
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+# --- Video Configuration Paths ---
+VIDEO_UPLOAD_DIR = Path("uploads/videos")
+VIDEO_OUTPUT_DIR = Path("outputs/videos")
+VIDEO_TEMP_DIR = Path("temp/jobs")
+
+# Ensure subfolders exist
+VIDEO_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+VIDEO_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+VIDEO_TEMP_DIR.mkdir(parents=True, exist_ok=True)
+
+# Global video components
+job_manager = JobManager(VIDEO_TEMP_DIR)
+
+# Dependency Injection Providers
+def get_job_manager() -> JobManager:
+    return job_manager
 
 progress_lock = Lock()
 progress_by_filename = {}
@@ -83,9 +104,25 @@ def handle_upscaler_progress(current, total):
 # tile=256 helps avoid OOM on lower-end GPUs
 upscaler = RealESRGANUpscaler(tile=256, progress_callback=handle_upscaler_progress)
 
+video_upscaler = VideoUpscaler(
+    upload_dir=VIDEO_UPLOAD_DIR,
+    output_dir=VIDEO_OUTPUT_DIR,
+    temp_dir=VIDEO_TEMP_DIR,
+    upscaler=upscaler
+)
+
+def get_video_upscaler() -> VideoUpscaler:
+    return video_upscaler
+
 # --- Pydantic Models ---
 class UpscaleRequest(BaseModel):
     filename: str
+
+class VideoInfoRequest(BaseModel):
+    job_id: str
+
+class VideoProcessRequest(BaseModel):
+    job_id: str
 
 # --- Endpoints ---
 
@@ -224,6 +261,173 @@ def get_uploaded_image(filename: str):
         
     return FileResponse(file_path)
 
+# --- Video Upscaler Endpoints ---
+
+@app.post("/video/upload")
+async def upload_video(
+    file: UploadFile = File(...),
+    jm: JobManager = Depends(get_job_manager)
+):
+    """
+    Upload an MP4 video file and create a new upscale job.
+    """
+    # Accept MP4 video files
+    if not file.filename.endswith(".mp4") and not (file.content_type and file.content_type.startswith("video/")):
+        raise HTTPException(status_code=400, detail="Only MP4 video files are accepted")
+
+    job_id = jm.create_job()
+
+    raw_filename = file.filename or "video.mp4"
+    filename = os.path.basename(raw_filename)
+    filename = re.sub(r'[^a-zA-Z0-9_.-]', '_', filename)
+    if not filename.endswith(".mp4"):
+        filename += ".mp4"
+
+    unique_filename = f"{job_id}_{filename}"
+    file_path = VIDEO_UPLOAD_DIR / unique_filename
+
+    try:
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    except Exception as e:
+        try:
+            jm.delete_job(job_id)
+        except KeyError:
+            pass
+        raise HTTPException(status_code=500, detail=f"Failed to save video: {str(e)}")
+
+    # Register initial file path in the job info
+    jm.update_progress(job_id, video_path=str(file_path))
+
+    return {
+        "job_id": job_id,
+        "filename": filename
+    }
+
+@app.post("/video/info")
+async def get_video_info_endpoint(
+    request: VideoInfoRequest,
+    jm: JobManager = Depends(get_job_manager)
+):
+    """
+    Fetch specs/metadata of the uploaded video.
+    """
+    try:
+        job_info = jm.get_progress(request.job_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Job ID not found")
+
+    video_path_str = job_info.get("video_path")
+    if not video_path_str:
+        raise HTTPException(status_code=400, detail="No video file associated with this job")
+
+    try:
+        info = VideoUtils.get_video_info(Path(video_path_str))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read video metadata: {str(e)}")
+
+    return {
+        "duration": info["duration"],
+        "fps": info["fps"],
+        "width": info["width"],
+        "height": info["height"],
+        "codec": info["codec_name"],
+        "frame_count": info["frame_count"]
+    }
+
+@app.post("/video/process")
+async def process_video_endpoint(
+    request: VideoProcessRequest,
+    background_tasks: BackgroundTasks,
+    jm: JobManager = Depends(get_job_manager),
+    upscaler: VideoUpscaler = Depends(get_video_upscaler)
+):
+    """
+    Start the video upscaling pipeline asynchronously in the background.
+    """
+    try:
+        job_info = jm.get_progress(request.job_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Job ID not found")
+
+    video_path_str = job_info.get("video_path")
+    if not video_path_str:
+        raise HTTPException(status_code=400, detail="No video file associated with this job")
+
+    # Queue the upscaler in the background
+    background_tasks.add_task(
+        upscaler.upscale_video,
+        video_path=Path(video_path_str),
+        job_id=request.job_id,
+        job_manager=jm
+    )
+
+    return {
+        "status": "processing",
+        "job_id": request.job_id
+    }
+
+@app.get("/video/progress/{job_id}")
+async def get_video_progress_endpoint(
+    job_id: str,
+    jm: JobManager = Depends(get_job_manager)
+):
+    """
+    Query the progress status of a video upscaling job.
+    """
+    try:
+        job_info = jm.get_progress(job_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Job ID not found")
+
+    return {
+        "job_id": job_info["job_id"],
+        "status": job_info["status"],
+        "progress": job_info["progress"],
+        "current_stage": job_info["current_stage"],
+        "current_frame": job_info["current_frame"],
+        "total_frames": job_info["total_frames"],
+        "error": job_info["error"]
+    }
+
+@app.get("/video/download/{job_id}")
+async def download_video_endpoint(
+    job_id: str,
+    jm: JobManager = Depends(get_job_manager)
+):
+    """
+    Download the final processed video file.
+    """
+    try:
+        job_info = jm.get_progress(job_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Job ID not found")
+
+    if job_info["status"] != "complete":
+        raise HTTPException(status_code=400, detail="Job is not completed yet")
+
+    output_path_str = job_info.get("output_path")
+    if not output_path_str:
+        raise HTTPException(status_code=404, detail="Processed video file not found")
+
+    output_path = Path(output_path_str)
+    if not output_path.exists():
+        raise HTTPException(status_code=404, detail="Output file does not exist on disk")
+
+    filename = output_path.name
+    # Strip prefix job_id if we want clean original filename
+    if filename.startswith(job_id + "_"):
+        filename = filename[len(job_id) + 1:]
+    elif filename.startswith("upscaled_") and job_id in filename:
+        # e.g., upscaled_UUID_video.mp4 -> upscaled_video.mp4
+        filename = filename.replace(job_id + "_", "")
+
+    return FileResponse(
+        str(output_path),
+        media_type="video/mp4",
+        filename=filename
+    )
+
 if __name__ == "__main__":
-    import uvicorn
+    import uvicorn  # type: ignore
     uvicorn.run(app, host="127.0.0.1", port=8000)
