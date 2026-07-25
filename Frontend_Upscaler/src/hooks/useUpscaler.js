@@ -80,7 +80,7 @@ const useUpscaler = (addToast) => {
         };
 
         pollProgress();
-        progressTimerRef.current = setInterval(pollProgress, 300);
+        progressTimerRef.current = setInterval(pollProgress, 1300);
     }, [stopProgressPolling]);
 
     const processImage = useCallback(async (fileOverride = null) => {

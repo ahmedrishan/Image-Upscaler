@@ -144,17 +144,39 @@ def handle_upscaler_progress(current, total):
         update_tile_progress(active_progress_filename, current, total)
 
 
-# Initialize usage of RealESRGANUpscaler
-# We use a global instance to load model once (which is expensive)
-# tile=256 helps avoid OOM on lower-end GPUs
-upscaler = RealESRGANUpscaler(tile=256, progress_callback=handle_upscaler_progress)
+# --- Model Initialization ---
+active_progress_filename = None
+upscaler = None
+video_upscaler = None
+model_loading = True
+model_loading_error = None
 
-video_upscaler = VideoUpscaler(
-    upload_dir=VIDEO_UPLOAD_DIR,
-    output_dir=VIDEO_OUTPUT_DIR,
-    temp_dir=VIDEO_TEMP_DIR,
-    upscaler=upscaler
-)
+def handle_upscaler_progress(current, total):
+    if active_progress_filename:
+        update_tile_progress(active_progress_filename, current, total)
+
+def load_models_bg():
+    global upscaler, video_upscaler, model_loading, model_loading_error
+    try:
+        print("Background task: Loading RealESRGANUpscaler...")
+        upscaler_instance = RealESRGANUpscaler(tile=256, progress_callback=handle_upscaler_progress)
+        video_upscaler_instance = VideoUpscaler(
+            upload_dir=VIDEO_UPLOAD_DIR,
+            output_dir=VIDEO_OUTPUT_DIR,
+            temp_dir=VIDEO_TEMP_DIR,
+            upscaler=upscaler_instance
+        )
+        upscaler = upscaler_instance
+        video_upscaler = video_upscaler_instance
+        model_loading = False
+        print("Background task: RealESRGANUpscaler loaded successfully.")
+    except Exception as e:
+        model_loading_error = str(e)
+        model_loading = False
+        print(f"Background task: Error loading upscaler: {e}")
+
+import threading
+threading.Thread(target=load_models_bg, daemon=True).start()
 
 def get_video_upscaler() -> VideoUpscaler:
     return video_upscaler
@@ -176,9 +198,25 @@ def health_check():
     """
     Check backend status and device.
     """
+    if model_loading:
+        try:
+            torch_mod = __import__('torch')
+            device_guess = "cuda" if torch_mod.cuda.is_available() else "cpu"
+        except ImportError:
+            device_guess = "cpu"
+        return {
+            "status": "loading",
+            "device": device_guess
+        }
+    if model_loading_error:
+        return {
+            "status": "error",
+            "device": None,
+            "error": model_loading_error
+        }
     return {
         "status": "ok",
-        "device": upscaler.device
+        "device": upscaler.device if upscaler else "cpu"
     }
 
 @app.get("/progress/{filename}")
@@ -237,6 +275,11 @@ def upscale_image(request: UpscaleRequest):
     Upscale an image existing in uploads/.
     Save to outputs/.
     """
+    if model_loading or upscaler is None:
+        raise HTTPException(status_code=503, detail="Upscaler model is still loading, please try again shortly.")
+    if model_loading_error:
+        raise HTTPException(status_code=500, detail=f"Upscaler failed to load: {model_loading_error}")
+
     print(f"DEBUG: Upscale requested for filename='{request.filename}'")
     
     if not request.filename or not request.filename.strip():
@@ -415,6 +458,10 @@ async def process_video_endpoint(
     """
     Start the video upscaling pipeline asynchronously in the background.
     """
+    if model_loading or upscaler is None:
+        raise HTTPException(status_code=503, detail="Upscaler model is still loading, please try again shortly.")
+    if model_loading_error:
+        raise HTTPException(status_code=500, detail=f"Upscaler failed to load: {model_loading_error}")
     try:
         job_info = jm.get_progress(request.job_id)
     except KeyError:

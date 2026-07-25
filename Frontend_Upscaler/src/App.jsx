@@ -95,6 +95,51 @@ function App() {
     const [toasts, setToasts] = useState([]);
     const [history, setHistory] = useState([]);
     const [denoisingEnabled, setDenoisingEnabled] = useState(false);
+    const [backendStatus, setBackendStatus] = useState({
+        state: 'disconnected', // 'disconnected' | 'loading' | 'connected'
+        device: null,
+    });
+
+    useEffect(() => {
+        let isMounted = true;
+        const checkHealth = async () => {
+            try {
+                const res = await api.checkHealth();
+                if (isMounted) {
+                    if (res?.status === 'loading') {
+                        setBackendStatus({
+                            state: 'loading',
+                            device: res?.device || 'CPU',
+                        });
+                    } else if (res?.status === 'ok') {
+                        setBackendStatus({
+                            state: 'connected',
+                            device: res?.device || 'CPU',
+                        });
+                    } else {
+                        setBackendStatus({
+                            state: 'disconnected',
+                            device: null,
+                        });
+                    }
+                }
+            } catch (err) {
+                if (isMounted) {
+                    setBackendStatus({
+                        state: 'disconnected',
+                        device: null,
+                    });
+                }
+            }
+        };
+
+        checkHealth();
+        const interval = setInterval(checkHealth, 5000);
+        return () => {
+            isMounted = false;
+            clearInterval(interval);
+        };
+    }, []);
 
     // Add toast
     const addToast = (message, type = 'info') => {
@@ -280,8 +325,28 @@ function App() {
                     </nav>
                 </div>
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-900 border border-white/5">
-                    <span className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] animate-pulse" />
-                    <span className="text-xs font-medium text-gray-400">Offline / Ready</span>
+                    {backendStatus.state === 'disconnected' && (
+                        <>
+                            <span className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)] animate-pulse" />
+                            <span className="text-xs font-medium text-red-400">Disconnected</span>
+                        </>
+                    )}
+                    {backendStatus.state === 'loading' && (
+                        <>
+                            <span className="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.6)] animate-pulse" />
+                            <span className="text-xs font-medium text-amber-400">
+                                Loading ({backendStatus.device ? backendStatus.device.toUpperCase() : 'CPU'})
+                            </span>
+                        </>
+                    )}
+                    {backendStatus.state === 'connected' && (
+                        <>
+                            <span className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] animate-pulse" />
+                            <span className="text-xs font-medium text-zinc-300">
+                                Connected / {backendStatus.device ? backendStatus.device.toUpperCase() : 'CPU'}
+                            </span>
+                        </>
+                    )}
                 </div>
             </header>
 
